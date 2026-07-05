@@ -1,0 +1,12 @@
+# GitHub Pages へ app/ と data/ をデプロイするワークフロー。
+# 実装は Phase 1 ステップ4。今はプレースホルダ(手動実行のみ・no-op)。
+name: deploy-pages
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO(Phase 1 step 4): configure Pages deploy"

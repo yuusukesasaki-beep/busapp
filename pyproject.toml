@@ -1,0 +1,21 @@
+[project]
+name = "harumi-bus-pipeline"
+version = "0.1.0"
+description = "はるみバス timetable pipeline(都バス/東京BRT/晴海ライナー → timetable.json)"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv]
+# pipeline はインストール対象のパッケージではなくスクリプト集(アプリケーションモード)
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["pipeline/tests"]

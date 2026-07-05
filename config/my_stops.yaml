@@ -1,0 +1,40 @@
+# my_stops.yaml — 抽出対象バス停の定義
+#
+# ここを編集すると timetable.json に含まれる対象が変わる。
+# pipeline はこのファイルを読み、各データソースから該当バス停の発車時刻だけを抽出する。
+# 全路線を入れずファイルを小さく保つこと(設計書 §3)。
+#
+# ▼ 停留所名は各データソースの実表記に合わせる必要がある。
+#   都バスは fetch_toei.py 実装時に GTFS stops.txt を見て確定する。
+
+# --- 都バス(ODPT GTFS-JP: ToeiBus-GTFS.zip)------------------------------
+# Phase 1 の実装対象。完了条件は「都05-2 の実ダイヤで『あと○分』が正しく出る」こと。
+toei:
+  # GTFS stops.txt の stop_name と照合する対象バス停。
+  #   match: exact    = 完全一致
+  #   match: contains = 部分一致(のりば違い・表記ゆれをまとめたい時)
+  stops:
+    - name: "はるみらい前"
+      match: exact
+  # 対象系統(GTFS route_short_name で照合)。空/未指定なら該当バス停を通る全系統。
+  routes:
+    - "都05-2"
+
+# --- 東京BRT(Phase 2 で fetcher 実装。今は登録のみ)----------------------
+# ODPT に GTFS があれば toei と同じ処理に統合、無ければ HTML パース。
+brt:
+  # ターミナルなので routes は空 = 該当バス停を通る全ルートを対象にする。
+  stops:
+    - name: "晴海BRTターミナル"
+      match: exact
+    - name: "晴海五丁目ターミナル"
+      match: exact
+  routes: []
+
+# --- 晴海ライナー(Phase 2 で fetcher 実装。今は登録のみ)------------------
+# 日立自動車交通の公式ページを HTML パース(更新は年数回)。
+harumi:
+  stops:
+    - name: "晴海二丁目"
+      match: exact
+  routes: []

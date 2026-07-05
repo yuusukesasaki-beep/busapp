@@ -1,0 +1,16 @@
+# timetable.json を毎日更新するワークフロー。
+# 実装は Phase 1 ステップ4。今はプレースホルダ(手動実行のみ・no-op)。
+#
+# 注意: Actions は UTC。03:00 JST = 18:00 UTC 前日(設計書 / CLAUDE.md)。
+name: update-timetable
+
+on:
+  workflow_dispatch: {}
+  # schedule:
+  #   - cron: "0 18 * * *"   # 03:00 JST(= 18:00 UTC 前日)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO(Phase 1 step 4): uv run pipeline/build_timetable.py"

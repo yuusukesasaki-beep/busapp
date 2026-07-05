@@ -1,0 +1,2 @@
+# timetable.json の生成物置き場。commit は GitHub Actions が行う。
+# 手で timetable.json を編集しないこと(必ず pipeline から生成)。

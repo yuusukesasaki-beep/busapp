@@ -1,0 +1,3 @@
+route_id,route_short_name,route_long_name
+R052,都05-2,東京駅丸の内南口〜晴海埠頭
+R03,都03,(デコイ系統)
