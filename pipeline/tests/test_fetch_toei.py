@@ -118,12 +118,30 @@ def test_deadhead_and_decoy_excluded():
     assert dirs == {"晴海埠頭", "東京駅丸の内南口"}
 
 
-def test_directions_filter():
-    """directions を指定すると、その方面(trip_headsign)の便だけ残る。"""
-    cfg = dict(TOEI_CFG, directions=["東京駅丸の内南口"])
+def test_per_stop_directions_filter():
+    """バス停ごとの directions で、その方面(trip_headsign)の便だけ残る。"""
+    cfg = {
+        "routes": ["都05-1"],
+        "stops": [{"name": "はるみらい前", "directions": ["東京駅丸の内南口"]}],
+    }
     routes = fetch_toei.extract(fetch_toei.load_gtfs(_zip_fixture()), cfg)
     assert [r["direction"] for r in routes] == ["東京駅丸の内南口"]
     assert routes[0]["stops"][0]["weekday"] == ["06:41"]
+
+
+def test_per_stop_directions_are_independent():
+    """同じ系統でも、停ごとに違う方面を選べる(自宅側=往、都心側=帰り)。"""
+    cfg = {
+        "routes": ["都05-1"],
+        "stops": [
+            {"name": "はるみらい前", "directions": ["東京駅丸の内南口"]},  # 往
+            {"name": "晴海埠頭", "directions": ["晴海埠頭"]},              # 帰り(終点側)
+        ],
+    }
+    routes = fetch_toei.extract(fetch_toei.load_gtfs(_zip_fixture()), cfg)
+    by_dir = {r["direction"]: [s["stop_name"] for s in r["stops"]] for r in routes}
+    assert by_dir["東京駅丸の内南口"] == ["はるみらい前"]
+    assert by_dir["晴海埠頭"] == ["晴海埠頭"]  # はるみらい前は 晴海埠頭方面に出ない
 
 
 def test_special_service_dropped():

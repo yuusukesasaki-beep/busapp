@@ -152,8 +152,12 @@ def extract(gtfs: dict[str, list[dict]], toei_cfg: dict) -> list[dict]:
     """
     stops_cfg = toei_cfg.get("stops") or []
     routes_filter = {normalize_name(r) for r in (toei_cfg.get("routes") or [])}
-    # 方面フィルタ(trip_headsign で照合)。空なら全方面。例: 都心方向の便だけ残す。
-    directions_filter = {normalize_name(d) for d in (toei_cfg.get("directions") or [])}
+    # バス停ごとの方面フィルタ(stop cfg の directions を trip_headsign で照合)。
+    # 空/未指定なら全方面。自宅側は都心方向、都心側は帰り方向、と停ごとに変えられる。
+    stop_dirs = {
+        cfg["name"]: {normalize_name(d) for d in (cfg.get("directions") or [])}
+        for cfg in stops_cfg
+    }
 
     # 1. 対象 stop_id → 表示名(config の name に正規化。のりば違いをまとめる)
     stop_id_to_name: dict[str, str] = {}
@@ -180,15 +184,12 @@ def extract(gtfs: dict[str, list[dict]], toei_cfg: dict) -> list[dict]:
         rs = route_short.get(t["route_id"], "")
         if routes_filter and rs not in routes_filter:
             continue
-        headsign = t.get("trip_headsign", "")
-        if directions_filter and normalize_name(headsign) not in directions_filter:
-            continue
         buckets = svc_buckets.get(t.get("service_id", ""), set())
         if not buckets:
             continue
         trips[t["trip_id"]] = {
             "route_short": rs,
-            "headsign": headsign,
+            "headsign": t.get("trip_headsign", ""),
             "direction_id": t.get("direction_id", ""),
             "buckets": buckets,
         }
@@ -222,6 +223,9 @@ def extract(gtfs: dict[str, list[dict]], toei_cfg: dict) -> list[dict]:
             name = cfg["name"]
             if name not in stops_map:
                 continue
+            dirs = stop_dirs.get(name)
+            if dirs and normalize_name(headsign) not in dirs:
+                continue  # このバス停では見ない方面
             b = stops_map[name]
             entry = {"stop_name": name}
             for bucket in BUCKETS:
