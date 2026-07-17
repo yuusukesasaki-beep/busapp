@@ -1,12 +1,62 @@
-# GitHub Pages へ app/ と data/ をデプロイするワークフロー。
-# 実装は Phase 1 ステップ4。今はプレースホルダ(手動実行のみ・no-op)。
+# app/(PWA本体)と data/timetable.json を GitHub Pages へデプロイする。
+#
+# トリガー:
+#   - update-timetable 成功後(workflow_run)… 毎日のデータ更新を反映
+#   - app/ や data/ の push … PWA本体の更新を反映
+#   - 手動実行
+#
+# 前提(GitHub側の手作業):
+#   - Settings → Pages → Source を「GitHub Actions」に設定
+#   - private リポジトリで Pages を使うには有料プランが必要(設計書 §6)
 name: deploy-pages
 
 on:
+  workflow_run:
+    workflows: ["update-timetable"]
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "data/**"
+      - ".github/workflows/deploy-pages.yml"
   workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
   deploy:
+    # workflow_run 経由のときは update-timetable 成功時のみ(手動/push は常に実行)
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - run: echo "TODO(Phase 1 step 4): configure Pages deploy"
+      - uses: actions/checkout@v4
+
+      - name: 公開ディレクトリを組み立て(app/ をルート、data/ を配下に)
+        run: |
+          mkdir -p _site/data
+          cp -r app/. _site/ 2>/dev/null || true
+          if [ -f data/timetable.json ]; then
+            cp data/timetable.json _site/data/
+          else
+            echo "timetable.json 未生成(初回は update-timetable の後に反映)"
+          fi
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

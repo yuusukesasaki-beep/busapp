@@ -1,16 +1,53 @@
-# timetable.json を毎日更新するワークフロー。
-# 実装は Phase 1 ステップ4。今はプレースホルダ(手動実行のみ・no-op)。
+# timetable.json を毎日生成してコミットするワークフロー。
+# 成功すると deploy-pages.yml が workflow_run で走り、Pages へ反映される。
+#
+# 前提(GitHub側の手作業):
+#   - リポジトリ Secrets に ODPT_TOKEN を登録(.env とは別。Actions 用)
 #
 # 注意: Actions は UTC。03:00 JST = 18:00 UTC 前日(設計書 / CLAUDE.md)。
 name: update-timetable
 
 on:
+  schedule:
+    - cron: "0 18 * * *"   # 03:00 JST(= 18:00 UTC 前日)
   workflow_dispatch: {}
-  # schedule:
-  #   - cron: "0 18 * * *"   # 03:00 JST(= 18:00 UTC 前日)
+
+permissions:
+  contents: write          # data/timetable.json をコミットするため
+
+concurrency:
+  group: update-timetable
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "TODO(Phase 1 step 4): uv run pipeline/build_timetable.py"
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: パーサテスト(サイト/仕様変更の検知)
+        run: uv run --frozen pytest -q
+
+      - name: timetable.json 生成(妥当性チェック込み)
+        env:
+          ODPT_TOKEN: ${{ secrets.ODPT_TOKEN }}
+        run: uv run --frozen pipeline/build_timetable.py
+        # 便数±50%超などで異常終了した場合はここで失敗し、コミット/デプロイされない
+        # (前日の timetable.json が残る = 障害に強い設計)
+
+      - name: 変更があればコミット & プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/timetable.json
+          if git diff --staged --quiet; then
+            echo "変更なし。コミットしない。"
+          else
+            git commit -m "data: update timetable.json ($(date -u +%Y-%m-%dT%H:%MZ))"
+            git push
+          fi
