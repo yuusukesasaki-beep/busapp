@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>はるみバス</title>
+  <meta name="description" content="自宅周辺バス停の次のバスを表示">
+  <meta name="theme-color" content="#0ea5e9">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icon.svg">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <h1>はるみバス</h1>
+      <button id="refresh" class="icon-btn" title="更新" aria-label="更新">↻</button>
+    </header>
+
+    <div id="status-bar" class="status-bar" hidden></div>
+    <p id="schedule-type" class="schedule-type"></p>
+
+    <main id="stops" class="stops" aria-live="polite"></main>
+
+    <details id="settings" class="settings">
+      <summary>表示するバス停</summary>
+      <div id="stop-toggles" class="stop-toggles"></div>
+    </details>
+
+    <footer class="app-footer">
+      <p id="freshness" class="freshness"></p>
+      <p class="official"><a id="official-link" href="https://tobus.jp/" target="_blank" rel="noopener">公式サイトで最新の運行を確認 ↗</a></p>
+      <p class="credit">
+        バスデータ: <a href="https://www.odpt.org/" target="_blank" rel="noopener">公共交通オープンデータセンター</a>(都営バス / CC BY 4.0)<br>
+        祝日: 内閣府「国民の祝日」
+      </p>
+    </footer>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

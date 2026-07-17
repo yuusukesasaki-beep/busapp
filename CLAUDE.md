@@ -30,7 +30,7 @@
 ```bash
 uv run pipeline/build_timetable.py --local   # ローカルで統合JSON生成(要 .env)
 uv run pytest pipeline/tests/                # パーサテスト
-python -m http.server -d app 8000            # アプリをローカル確認
+python -m http.server 8000                   # リポジトリ直下で配信し http://localhost:8000/app/ を開く
 ```
 
 ## テスト方針

@@ -24,9 +24,10 @@ uv sync                   # 依存関係をインストール
 ```bash
 uv run pipeline/build_timetable.py --local   # ローカルで統合JSON生成(要 .env)
 uv run pytest pipeline/tests/                # パーサテスト
-python -m http.server -d app 8000            # アプリをローカル確認
+python -m http.server 8000                   # 直下で配信 → http://localhost:8000/app/ を開く
 ```
 
 ## ステータス
 
-Phase 1(都バス縦貫通)。ステップ1〜2(リポジトリ雛形・`my_stops.yaml`)完了。
+Phase 1(都バス縦貫通)ほぼ完了。パイプライン(ODPT取得〜3区分JSON生成)+ Actions日次更新
++ Pages配信 + PWA本体まで稼働。公開: https://yuusukesasaki-beep.github.io/busapp/
