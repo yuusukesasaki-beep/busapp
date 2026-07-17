@@ -13,13 +13,18 @@ JST = timezone(timedelta(hours=9))
 
 SAMPLE_ROUTES = [
     {
-        "id": "toei-05-2-0",
+        "id": "toei-05-1-0",
         "operator": "toei",
         "operator_name": "都営バス",
-        "route_name": "都05-2",
+        "route_name": "都05-1",
         "direction": "晴海埠頭",
         "stops": [
-            {"stop_name": "はるみらい前", "weekday": ["06:10", "07:15"], "holiday": ["08:30"]},
+            {
+                "stop_name": "はるみらい前",
+                "weekday": ["07:18", "07:41"],
+                "saturday": ["06:32"],
+                "holiday": ["06:47"],
+            },
         ],
     },
 ]
@@ -27,8 +32,8 @@ SAMPLE_ROUTES = [
 
 # --- count_departures ------------------------------------------------------
 def test_count_departures():
-    # weekday 2 + holiday 1 = 3
-    assert bt.count_departures(SAMPLE_ROUTES) == 3
+    # weekday 2 + saturday 1 + holiday 1 = 4
+    assert bt.count_departures(SAMPLE_ROUTES) == 4
     assert bt.count_departures([]) == 0
 
 

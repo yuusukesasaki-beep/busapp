@@ -46,11 +46,12 @@ def now_jst() -> datetime:
 
 
 def count_departures(routes: list[dict]) -> int:
-    """routes 配下の weekday/holiday 発車時刻の総数(便数の代理指標)。"""
+    """routes 配下の全ダイヤ区分(平日/土曜/休日)の発車時刻総数(便数の代理指標)。"""
     total = 0
     for r in routes:
         for s in r.get("stops", []):
-            total += len(s.get("weekday", [])) + len(s.get("holiday", []))
+            for bucket in fetch_toei.BUCKETS:
+                total += len(s.get(bucket, []))
     return total
 
 
@@ -89,6 +90,21 @@ def validate_trip_count(
 
 
 # --- I/O -------------------------------------------------------------------
+def load_dotenv(path: Path = ROOT / ".env") -> None:
+    """.env があれば環境変数へ読み込む(既存の環境変数は上書きしない)。
+
+    依存を増やさない軽量パーサ。ローカル実行(--local)用。値は出力しないこと。
+    """
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+
+
 def load_config(path: Path = CONFIG_PATH) -> dict:
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
@@ -110,6 +126,8 @@ def write_document(doc: dict, path: Path = DATA_PATH) -> None:
 
 # --- オーケストレーション --------------------------------------------------
 def run(local: bool = False) -> dict:
+    if local:
+        load_dotenv()
     cfg = load_config()
     now = now_jst()
     sources: dict[str, dict] = {}

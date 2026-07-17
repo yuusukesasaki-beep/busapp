@@ -1,6 +1,10 @@
 route_id,service_id,trip_id,trip_headsign,direction_id
-R052,WD,T1,晴海埠頭,0
-R052,WD,T2,晴海埠頭,0
-R052,HD,T3,晴海埠頭,0
-R052,WD,T4,東京駅丸の内南口,1
-R03,WD,T5,豊海水産埠頭,0
+R051,WD,T1,晴海埠頭,0
+R051,WD,T1b,晴海埠頭,0
+R051,SA,T2,晴海埠頭,0
+R051,SU,T3,晴海埠頭,0
+R051,SU,T8,晴海埠頭,0
+R051,WD,T4,東京駅丸の内南口,1
+R051,SP,T7,晴海埠頭,0
+RIO,WD,T5,深川車庫前,0
+RDECOY,WD,T6,豊海水産埠頭,0
