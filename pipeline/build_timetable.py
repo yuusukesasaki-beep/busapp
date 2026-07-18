@@ -65,6 +65,31 @@ def count_departures_by_operator(routes: list[dict]) -> dict[str, int]:
     return counts
 
 
+def stop_group_map(cfg: dict) -> dict[str, str]:
+    """my_stops.yaml 全セクション → {停留所名: group}。
+
+    group は depart(おでかけ: 晴海→都心)/ return(帰宅: 都心→晴海)。
+    アプリはこの値で停留所カードを区分け表示する(未指定なら付与しない)。
+    """
+    mapping: dict[str, str] = {}
+    for section in ("toei", "brt", "harumi"):
+        for stop in (cfg.get(section) or {}).get("stops") or []:
+            group = stop.get("group")
+            if group:
+                mapping[stop["name"]] = group
+    return mapping
+
+
+def annotate_stop_groups(routes: list[dict], group_map: dict[str, str]) -> list[dict]:
+    """routes 配下の各停留所エントリに group を付与する(in-place で返す)。"""
+    for r in routes:
+        for s in r.get("stops", []):
+            group = group_map.get(s.get("stop_name", ""))
+            if group:
+                s["group"] = group
+    return routes
+
+
 def build_document(
     routes: list[dict],
     holiday_list: list[str],
@@ -203,6 +228,9 @@ def run(local: bool = False) -> dict:
     holiday_list = holidays.parse_holidays(
         holidays.fetch_syukujitsu_csv(), year_from=now.year, year_to=now.year + 1
     )
+
+    # 停留所に区分け(おでかけ/帰宅)を付与(アプリの表示用)
+    annotate_stop_groups(routes, stop_group_map(cfg))
 
     # 妥当性チェック(operator ごとに前回比 ±50%)→ 不合格なら書き込まず中止
     validate_trip_counts_by_operator(prev.get("routes", []) if prev else [], routes)

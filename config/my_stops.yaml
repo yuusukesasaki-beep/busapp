@@ -19,14 +19,18 @@ toei:
   # GTFS stops.txt の stop_name と照合する対象バス停。
   #   match:      exact=完全一致 / contains=部分一致(既定 exact)
   #   directions: 見たい方面(trip_headsign で照合)。空/未指定なら全方面。
+  # group: depart=おでかけ(晴海→都心) / return=帰宅(都心→晴海)。アプリの区分け表示に使う。
   stops:
     # --- 自宅側: 都心方向の便を見る ---
     - name: "はるみらい前"
+      group: depart
       directions: ["東京駅丸の内南口", "四谷駅", "錦糸町駅前"]  # 都05-1 / 都03 / 錦13
     # --- 都心側: 帰り(晴海方面)の便を見る ---
     - name: "東京駅丸の内南口"
+      group: return
       directions: ["晴海埠頭"]                                  # 都05-1
     - name: "銀座四丁目"
+      group: return
       directions: ["晴海埠頭", "晴海五丁目ターミナル"]          # 都05-1 / 都03
 
 # --- 東京BRT(公式サイトのバス停別時刻表ページを HTML パース)--------------
@@ -38,12 +42,15 @@ brt:
   stops:
     # --- 自宅側: 都心方向の便を見る ---
     - name: "晴海五丁目ターミナル"                # HARUMI FLAG(B33)
+      group: depart
       directions: ["新橋"]                        # (選手村ルート)新橋行
     - name: "晴海BRTターミナル"                   # B22
+      group: depart
       directions: ["新橋", "虎ノ門ヒルズ"]        # (晴海・豊洲ルート)新橋・虎ノ門ヒルズ行
     # --- 都心側: 帰り(晴海方面)の便を見る ---
     # 幹線ルート(国際展示場行)は晴海BRTターミナルに停まらないため「晴海」だけで絞る
     - name: "新橋"                                # B01
+      group: return
       directions: ["晴海"]                        # 選手村ルート / 晴海・豊洲ルート
   routes: []  # BRT はバス停ページ単位で取得するため系統フィルタは未使用
 

@@ -101,6 +101,27 @@ def test_validate_by_operator_catches_single_source_anomaly():
         bt.validate_trip_counts_by_operator(prev, new)
 
 
+def test_stop_group_map_and_annotate():
+    """config の group(depart/return)が routes 配下の停留所に付与される。"""
+    cfg = {
+        "toei": {"stops": [{"name": "はるみらい前", "group": "depart"},
+                           {"name": "銀座四丁目", "group": "return"}]},
+        "brt": {"stops": [{"name": "新橋", "group": "return"},
+                          {"name": "無指定"}]},  # group 無し → 付与されない
+    }
+    gmap = bt.stop_group_map(cfg)
+    assert gmap == {"はるみらい前": "depart", "銀座四丁目": "return", "新橋": "return"}
+
+    routes = [
+        {"operator": "toei", "stops": [{"stop_name": "はるみらい前"}]},
+        {"operator": "brt", "stops": [{"stop_name": "新橋"}, {"stop_name": "無指定"}]},
+    ]
+    bt.annotate_stop_groups(routes, gmap)
+    assert routes[0]["stops"][0]["group"] == "depart"
+    assert routes[1]["stops"][0]["group"] == "return"
+    assert "group" not in routes[1]["stops"][1]
+
+
 def test_validate_by_operator_catches_vanished_source():
     """前回あった operator が今回 0 便なら異常として止める。"""
     prev = [_route("toei", ["07:00"] * 10), _route("brt", ["08:00"] * 10)]

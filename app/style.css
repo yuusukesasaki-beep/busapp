@@ -10,6 +10,13 @@
   --warn-bg: #fef3c7;
   --warn-ink: #92400e;
   --border: #e2e8f0;
+  /* 事業者カラー(バッジ)。都バス=車体の緑 / 東京BRT=車体の赤 */
+  --op-toei: #008a45;
+  --op-brt: #d7000f;
+  --op-ink: #ffffff;
+  /* 区分けカラー。おでかけ(都心方面)=空色 / 帰宅(晴海方面)=茜色 */
+  --depart: #0284c7;
+  --return: #ea580c;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -24,6 +31,11 @@
     --warn-bg: #422006;
     --warn-ink: #fbbf24;
     --border: #334155;
+    --op-toei: #16a34a;
+    --op-brt: #ef4444;
+    --op-ink: #ffffff;
+    --depart: #38bdf8;
+    --return: #fb923c;
   }
 }
 
@@ -84,6 +96,26 @@ body {
   font-weight: 600;
 }
 
+/* 区分け見出し(おでかけ/帰宅) */
+.group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 1rem;
+  margin: 20px 0 10px;
+}
+.group-head:first-child { margin-top: 4px; }
+.group-label {
+  color: #fff;
+  border-radius: 8px;
+  padding: 2px 12px;
+  font-size: .9rem;
+}
+.group-depart .group-label { background: var(--depart); }
+.group-return .group-label { background: var(--return); }
+.group-dest { color: var(--muted); font-size: .85rem; font-weight: 600; }
+.group-dest::before { content: "→ "; }
+
 .stop-card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -92,6 +124,9 @@ body {
   margin-bottom: 16px;
   box-shadow: 0 1px 2px rgba(0,0,0,.04);
 }
+/* カード左のラインでも区分けを示す(色弱でも見出し+位置で判別可能) */
+.stop-card.group-depart { border-left: 4px solid var(--depart); }
+.stop-card.group-return { border-left: 4px solid var(--return); }
 .stop-name { font-size: 1.1rem; margin: 0 0 10px; }
 
 .hero {
@@ -125,6 +160,16 @@ body {
   font-weight: 700;
   white-space: nowrap;
 }
+/* 事業者カラー: 都バス=緑 / 東京BRT=赤(系統名バッジで一目で分かる) */
+.route-badge.op-toei { background: var(--op-toei); color: var(--op-ink); }
+.route-badge.op-brt { background: var(--op-brt); color: var(--op-ink); }
+.hero .route-badge {
+  background: rgba(255,255,255,.92);
+  font-size: .75rem;
+  padding: 1px 7px;
+}
+.hero .route-badge.op-toei { color: var(--op-toei); }
+.hero .route-badge.op-brt { color: var(--op-brt); }
 .route-dir { font-size: .9rem; color: var(--muted); }
 
 .route-times { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; justify-content: flex-end; }

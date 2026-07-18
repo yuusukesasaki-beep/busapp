@@ -50,6 +50,7 @@ function routesAtStop(data, stopName, scheduleType) {
       out.push({
         routeName: r.route_name,
         direction: r.direction,
+        operator: r.operator,
         operatorName: r.operator_name,
         times: s[scheduleType] || [],
       });
@@ -66,6 +67,17 @@ function stopNames(data) {
     }
   }
   return seen;
+}
+
+// 停留所名 → 区分け(depart=おでかけ / return=帰宅)。timetable.json の stops[].group から。
+function stopGroups(data) {
+  const map = {};
+  for (const r of data.routes || []) {
+    for (const s of r.stops || []) {
+      if (s.group && !(s.stop_name in map)) map[s.stop_name] = s.group;
+    }
+  }
+  return map;
 }
 
 // ---- 以降はブラウザ専用(DOM)。node からの require では実行しない。----------
@@ -120,73 +132,108 @@ if (typeof document !== 'undefined') {
     const container = $('#stops');
     container.innerHTML = '';
     const stops = enabledStopsFor(data);
+    const groups = stopGroups(data);
 
-    for (const stopName of stops) {
-      const routes = routesAtStop(data, stopName, scheduleType);
+    // 区分け情報があれば「おでかけ/帰宅」のセクションに分ける(無い旧データは平置き)
+    const sections = Object.keys(groups).length
+      ? [
+          { key: 'depart', label: 'おでかけ', dest: '都心方面' },
+          { key: 'return', label: '帰宅', dest: '晴海方面' },
+        ]
+      : [{ key: null }];
 
-      // このバス停で「次に来る」1便(系統横断で最速)を強調表示。
-      let soonest = null;
-      for (const r of routes) {
-        const next = upcoming(r.times, nowMin, 1)[0];
-        if (next && (!soonest || next.min < soonest.min)) {
-          soonest = { min: next.min, time: next.time, routeName: r.routeName, direction: r.direction };
-        }
+    for (const section of sections) {
+      const names = section.key
+        ? stops.filter((n) => (groups[n] || 'depart') === section.key)
+        : stops;
+      if (!names.length) continue;
+
+      if (section.key) {
+        const head = document.createElement('h2');
+        head.className = `group-head group-${section.key}`;
+        head.innerHTML =
+          `<span class="group-label">${section.label}</span>` +
+          `<span class="group-dest">${section.dest}</span>`;
+        container.appendChild(head);
       }
 
-      const card = document.createElement('section');
-      card.className = 'stop-card';
-
-      const h = document.createElement('h2');
-      h.className = 'stop-name';
-      h.textContent = stopName;
-      card.appendChild(h);
-
-      if (soonest) {
-        const hero = document.createElement('div');
-        hero.className = 'hero';
-        hero.innerHTML =
-          `<span class="hero-count">${fmtCountdown(soonest.min - nowMin)}</span>` +
-          `<span class="hero-meta">${soonest.routeName} ${soonest.direction} ・ ${soonest.time}発</span>`;
-        card.appendChild(hero);
-      } else {
-        const none = document.createElement('div');
-        none.className = 'hero none';
-        none.innerHTML = '<span class="hero-count">本日の運行は終了</span>';
-        card.appendChild(none);
+      for (const stopName of names) {
+        container.appendChild(buildStopCard(data, stopName, scheduleType, nowMin, section.key));
       }
-
-      for (const r of routes) {
-        const next = upcoming(r.times, nowMin, SHOW_PER_ROUTE);
-        const row = document.createElement('div');
-        row.className = 'route-row';
-        const head = document.createElement('div');
-        head.className = 'route-head';
-        head.innerHTML = `<span class="route-badge">${r.routeName}</span><span class="route-dir">${r.direction}</span>`;
-        row.appendChild(head);
-
-        const times = document.createElement('div');
-        times.className = 'route-times';
-        if (next.length) {
-          next.forEach((x, i) => {
-            const span = document.createElement('span');
-            span.className = 'time-chip' + (i === 0 ? ' soon' : '') + (x.min - nowMin <= 60 ? ' within-hour' : '');
-            span.textContent = i === 0 ? `${x.time}(${fmtCountdown(x.min - nowMin)})` : x.time;
-            times.appendChild(span);
-          });
-        } else {
-          const span = document.createElement('span');
-          span.className = 'time-chip end';
-          span.textContent = '本日終了';
-          times.appendChild(span);
-        }
-        row.appendChild(times);
-        card.appendChild(row);
-      }
-
-      container.appendChild(card);
     }
 
     renderToggles(data);
+  }
+
+  function buildStopCard(data, stopName, scheduleType, nowMin, groupKey) {
+    const routes = routesAtStop(data, stopName, scheduleType);
+
+    // このバス停で「次に来る」1便(系統横断で最速)を強調表示。
+    let soonest = null;
+    for (const r of routes) {
+      const next = upcoming(r.times, nowMin, 1)[0];
+      if (next && (!soonest || next.min < soonest.min)) {
+        soonest = {
+          min: next.min, time: next.time,
+          routeName: r.routeName, direction: r.direction, operator: r.operator,
+        };
+      }
+    }
+
+    const card = document.createElement('section');
+    card.className = 'stop-card' + (groupKey ? ` group-${groupKey}` : '');
+
+    const h = document.createElement('h3');
+    h.className = 'stop-name';
+    h.textContent = stopName;
+    card.appendChild(h);
+
+    if (soonest) {
+      const hero = document.createElement('div');
+      hero.className = 'hero';
+      hero.innerHTML =
+        `<span class="hero-count">${fmtCountdown(soonest.min - nowMin)}</span>` +
+        `<span class="hero-meta"><span class="route-badge op-${soonest.operator}">${soonest.routeName}</span> ` +
+        `${soonest.direction} ・ ${soonest.time}発</span>`;
+      card.appendChild(hero);
+    } else {
+      const none = document.createElement('div');
+      none.className = 'hero none';
+      none.innerHTML = '<span class="hero-count">本日の運行は終了</span>';
+      card.appendChild(none);
+    }
+
+    for (const r of routes) {
+      const next = upcoming(r.times, nowMin, SHOW_PER_ROUTE);
+      const row = document.createElement('div');
+      row.className = 'route-row';
+      const head = document.createElement('div');
+      head.className = 'route-head';
+      head.innerHTML =
+        `<span class="route-badge op-${r.operator}">${r.routeName}</span>` +
+        `<span class="route-dir">${r.direction}</span>`;
+      row.appendChild(head);
+
+      const times = document.createElement('div');
+      times.className = 'route-times';
+      if (next.length) {
+        next.forEach((x, i) => {
+          const span = document.createElement('span');
+          span.className = 'time-chip' + (i === 0 ? ' soon' : '') + (x.min - nowMin <= 60 ? ' within-hour' : '');
+          span.textContent = i === 0 ? `${x.time}(${fmtCountdown(x.min - nowMin)})` : x.time;
+          times.appendChild(span);
+        });
+      } else {
+        const span = document.createElement('span');
+        span.className = 'time-chip end';
+        span.textContent = '本日終了';
+        times.appendChild(span);
+      }
+      row.appendChild(times);
+      card.appendChild(row);
+    }
+
+    return card;
   }
 
   function renderStatus(data) {
@@ -288,5 +335,5 @@ if (typeof document !== 'undefined') {
 
 // node からのテスト用に純粋関数を公開。
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { toISODate, scheduleTypeFor, hhmmToMin, upcoming, routesAtStop, stopNames };
+  module.exports = { toISODate, scheduleTypeFor, hhmmToMin, upcoming, routesAtStop, stopNames, stopGroups };
 }
