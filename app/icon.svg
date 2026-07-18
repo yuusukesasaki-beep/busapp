@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="はるみバス">
-  <rect width="512" height="512" fill="#0ea5e9"/>
+  <rect width="512" height="512" fill="#2563eb"/>
   <g fill="#ffffff">
     <!-- bus body (kept within central safe zone for maskable) -->
     <rect x="146" y="150" width="220" height="176" rx="26"/>
-    <rect x="166" y="180" width="180" height="64" rx="10" fill="#0ea5e9"/>
-    <circle cx="196" cy="300" r="14" fill="#0ea5e9"/>
-    <circle cx="316" cy="300" r="14" fill="#0ea5e9"/>
-    <rect x="150" y="262" width="212" height="10" fill="#0ea5e9"/>
+    <rect x="166" y="180" width="180" height="64" rx="10" fill="#2563eb"/>
+    <circle cx="196" cy="300" r="14" fill="#2563eb"/>
+    <circle cx="316" cy="300" r="14" fill="#2563eb"/>
+    <rect x="150" y="262" width="212" height="10" fill="#2563eb"/>
   </g>
   <g fill="#0f172a">
     <circle cx="192" cy="352" r="26"/>

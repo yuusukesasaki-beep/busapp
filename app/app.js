@@ -190,7 +190,7 @@ if (typeof document !== 'undefined') {
 
     if (soonest) {
       const hero = document.createElement('div');
-      hero.className = 'hero';
+      hero.className = 'hero' + (soonest.operator ? ` op-${soonest.operator}` : '');
       hero.innerHTML =
         `<span class="hero-count">${fmtCountdown(soonest.min - nowMin)}</span>` +
         `<span class="hero-meta"><span class="route-badge op-${soonest.operator}">${soonest.routeName}</span> ` +

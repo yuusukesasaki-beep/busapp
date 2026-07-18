@@ -4,7 +4,7 @@
 //  - アプリシェル(HTML/JS/CSS/manifest/icon): キャッシュ優先(オフライン起動)
 //  - timetable.json: ネットワーク優先(最新を取りつつ、圏外では前回分を表示)
 // キャッシュ名の版を上げると古いキャッシュを一掃する。
-const CACHE = 'harumi-bus-v2';
+const CACHE = 'harumi-bus-v3';
 const SHELL = [
   './',
   './index.html',

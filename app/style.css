@@ -3,9 +3,9 @@
   --card: #ffffff;
   --text: #0f172a;
   --muted: #64748b;
-  --accent: #0ea5e9;
+  --accent: #2563eb;
   --accent-ink: #ffffff;
-  --soon: #0284c7;
+  --soon: #2563eb;
   --within: #059669;
   --warn-bg: #fef3c7;
   --warn-ink: #92400e;
@@ -14,8 +14,8 @@
   --op-toei: #008a45;
   --op-brt: #d7000f;
   --op-ink: #ffffff;
-  /* 区分けカラー。おでかけ(都心方面)=空色 / 帰宅(晴海方面)=茜色 */
-  --depart: #0284c7;
+  /* 区分けカラー。おでかけ(都心方面)=青 / 帰宅(晴海方面)=茜色(緑・茜と同トーン) */
+  --depart: #2563eb;
   --return: #ea580c;
 }
 @media (prefers-color-scheme: dark) {
@@ -24,9 +24,9 @@
     --card: #1e293b;
     --text: #e2e8f0;
     --muted: #94a3b8;
-    --accent: #38bdf8;
-    --accent-ink: #04222f;
-    --soon: #7dd3fc;
+    --accent: #60a5fa;
+    --accent-ink: #0b1c36;
+    --soon: #60a5fa;
     --within: #34d399;
     --warn-bg: #422006;
     --warn-ink: #fbbf24;
@@ -34,7 +34,7 @@
     --op-toei: #16a34a;
     --op-brt: #ef4444;
     --op-ink: #ffffff;
-    --depart: #38bdf8;
+    --depart: #60a5fa;
     --return: #fb923c;
   }
 }
@@ -139,6 +139,9 @@ body {
   color: var(--accent-ink);
   margin-bottom: 14px;
 }
+/* 次のバスの事業者カラーで塗る(都バス=緑 / 東京BRT=赤) */
+.hero.op-toei { background: var(--op-toei); color: var(--op-ink); }
+.hero.op-brt { background: var(--op-brt); color: var(--op-ink); }
 .hero.none { background: var(--border); color: var(--muted); }
 .hero-count { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
 .hero-meta { font-size: .9rem; opacity: .95; }
