@@ -23,6 +23,7 @@ from pathlib import Path
 
 import yaml
 
+import fetch_brt
 import fetch_toei
 import holidays
 
@@ -53,6 +54,15 @@ def count_departures(routes: list[dict]) -> int:
             for bucket in fetch_toei.BUCKETS:
                 total += len(s.get(bucket, []))
     return total
+
+
+def count_departures_by_operator(routes: list[dict]) -> dict[str, int]:
+    """operator ごとの発車時刻総数。妥当性チェックをソース単位で行うために使う。"""
+    counts: dict[str, int] = {}
+    for r in routes:
+        op = r.get("operator", "")
+        counts[op] = counts.get(op, 0) + count_departures([r])
+    return counts
 
 
 def build_document(
@@ -87,6 +97,26 @@ def validate_trip_count(
             f"便数が前回比 {ratio:.0%} 変化(前回 {prev_count} → 今回 {new_count})。"
             f"しきい値 {threshold:.0%} 超のためデプロイ中止。"
         )
+
+
+def validate_trip_counts_by_operator(
+    prev_routes: list[dict],
+    new_routes: list[dict],
+    threshold: float = TRIP_COUNT_THRESHOLD,
+) -> None:
+    """便数チェックを operator 単位で行う。
+
+    全体合計だと新ソース追加(例: BRT対応)が「異常な増加」に見えてしまうため、
+    ソースごとに前回比 ±threshold を判定する。前回に無い operator は初回として
+    通し、前回あったのに今回 0 になった operator は異常(-100%)として止める。
+    """
+    prev_counts = count_departures_by_operator(prev_routes)
+    new_counts = count_departures_by_operator(new_routes)
+    for op in sorted(set(prev_counts) | set(new_counts)):
+        try:
+            validate_trip_count(prev_counts.get(op), new_counts.get(op, 0), threshold)
+        except ValidationError as e:
+            raise ValidationError(f"[{op}] {e}") from None
 
 
 # --- I/O -------------------------------------------------------------------
@@ -130,6 +160,7 @@ def run(local: bool = False) -> dict:
         load_dotenv()
     cfg = load_config()
     now = now_jst()
+    prev = load_previous()
     sources: dict[str, dict] = {}
 
     # 都バス(Phase 1)。取得は fetch_gtfs_zip(APIキー取得後に実装)。
@@ -139,15 +170,42 @@ def run(local: bool = False) -> dict:
     routes = fetch_toei.extract(gtfs, cfg.get("toei") or {})
     sources["toei"] = {"status": "ok", "fetched_at": now.isoformat(timespec="seconds")}
 
+    # 東京BRT(Phase 2)。公式サイトの HTML パース。取得・パースに失敗しても
+    # 全体は止めず、前回の BRT 分を維持して sources.brt を stale にする(設計書 §3)。
+    brt_cfg = cfg.get("brt") or {}
+    if brt_cfg.get("stops"):
+        try:
+            pages = {
+                s["name"]: fetch_brt.fetch_stop_page(s["name"])
+                for s in brt_cfg["stops"]
+            }
+            brt_routes = fetch_brt.extract(pages, brt_cfg)
+            if not brt_routes:
+                raise RuntimeError("抽出結果が空(ページ構造が変わった可能性)")
+            routes += brt_routes
+            sources["brt"] = {
+                "status": "ok", "fetched_at": now.isoformat(timespec="seconds"),
+            }
+        except Exception as e:  # noqa: BLE001 - 前回データで継続するため広く拾う
+            print(f"[warn] 東京BRT取得失敗: {e}", file=sys.stderr)
+            routes += [
+                r for r in (prev or {}).get("routes", [])
+                if r.get("operator") == fetch_brt.OPERATOR
+            ]
+            prev_src = ((prev or {}).get("sources") or {}).get("brt") or {}
+            sources["brt"] = {
+                "status": "stale",
+                "fetched_at": prev_src.get("fetched_at", ""),
+                "note": "東京BRTの取得に失敗したため前回データ",
+            }
+
     # 祝日(内閣府CSV)。当年〜翌年ぶんを同梱。
     holiday_list = holidays.parse_holidays(
         holidays.fetch_syukujitsu_csv(), year_from=now.year, year_to=now.year + 1
     )
 
-    # 妥当性チェック(前回比 ±50%)→ 不合格なら書き込まず中止
-    prev = load_previous()
-    prev_count = count_departures(prev.get("routes", [])) if prev else None
-    validate_trip_count(prev_count, count_departures(routes))
+    # 妥当性チェック(operator ごとに前回比 ±50%)→ 不合格なら書き込まず中止
+    validate_trip_counts_by_operator(prev.get("routes", []) if prev else [], routes)
 
     doc = build_document(routes, holiday_list, sources, now)
     write_document(doc)
