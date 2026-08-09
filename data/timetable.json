@@ -1,13 +1,14 @@
 {
-  "generated_at": "2026-08-09T03:30:03+09:00",
+  "generated_at": "2026-08-10T03:33:34+09:00",
   "sources": {
     "toei": {
       "status": "ok",
-      "fetched_at": "2026-08-09T03:30:03+09:00"
+      "fetched_at": "2026-08-10T03:33:34+09:00"
     },
     "brt": {
-      "status": "ok",
-      "fetched_at": "2026-08-09T03:30:03+09:00"
+      "status": "stale",
+      "fetched_at": "2026-08-09T03:30:03+09:00",
+      "note": "東京BRTの取得に失敗したため前回データ"
     }
   },
   "holidays": [
