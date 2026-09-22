@@ -4,7 +4,9 @@
 parse_stop_page → extract を検証する(スナップショット方針)。
 
 フィクスチャは実データの特徴を再現:
-  - b33-harumi-flag: 2タブ(選手村ルート新橋行 / 幹線ルート豊洲市場前・国際展示場行)
+  - b33-harumi-flag: 3タブ(選手村ルート新橋行 / 幹線ルート国際展示場行 /
+                     東京駅選手村ルート東京駅八重洲行)。2026-09 取得
+  - b41-tokyo-yaesu: 1タブ(東京駅選手村ルート HARUMI FLAG行)。2026-09 取得
   - b01-shimbashi:   4タブ。幹線ルートのテーブルに余分な </div> がある壊れた
                      マークアップ(実サイト由来)→ html5lib での回復を回帰テスト
   - b22-harumi-brt-terminal: 2タブ(都心方向は新橋・虎ノ門ヒルズ行の1タブ)
@@ -32,18 +34,18 @@ def test_parse_b33_tabs():
     tabs = fetch_brt.parse_stop_page(_load("b33-harumi-flag.html"))
     assert [(t["route_name"], t["direction"]) for t in tabs] == [
         ("選手村ルート", "新橋ゆき"),
-        ("幹線ルート", "豊洲市場前・国際展示場ゆき"),
+        ("幹線ルート", "国際展示場ゆき"),
+        ("東京駅選手村ルート", "東京駅八重洲ゆき"),
     ]
-    assert tabs[0]["dest_codes"] == ["B01"]
-    assert tabs[1]["dest_codes"] == ["B03", "B05"]
+    assert [t["dest_codes"] for t in tabs] == [["B01"], ["B05"], ["B41"]]
 
 
 def test_parse_b33_times():
     tab = fetch_brt.parse_stop_page(_load("b33-harumi-flag.html"))[0]
-    # 平日: 始発 06:28 / 最終 22:13 / 75便(5時台の空セルは読み飛ばす)
+    # 平日: 始発 06:28 / 最終 22:13 / 79便(5時台の空セルは読み飛ばす)
     assert tab["weekday"][0] == "06:28"
     assert tab["weekday"][-1] == "22:13"
-    assert len(tab["weekday"]) == 75
+    assert len(tab["weekday"]) == 79
     # 土休日は別ダイヤ
     assert tab["holiday"][0] == "06:30"
     assert len(tab["holiday"]) == 62
@@ -51,6 +53,24 @@ def test_parse_b33_times():
     for times in (tab["weekday"], tab["holiday"]):
         assert all(HHMM.match(t) for t in times)
         assert times == sorted(times)
+
+
+def test_parse_b33_tokyo_route():
+    """東京駅選手村ルート(新設): 9:00〜17:00 の30分間隔、平日・土休日同一ダイヤ。"""
+    tab = fetch_brt.parse_stop_page(_load("b33-harumi-flag.html"))[2]
+    expected = [f"{h:02d}:{m:02d}" for h in range(9, 17) for m in (0, 30)] + ["17:00"]
+    assert tab["weekday"] == expected
+    assert tab["holiday"] == expected
+
+
+def test_parse_b41_tabs():
+    tabs = fetch_brt.parse_stop_page(_load("b41-tokyo-yaesu.html"))
+    assert [(t["route_name"], t["direction"], t["dest_codes"]) for t in tabs] == [
+        ("東京駅選手村ルート", "HARUMI FLAG(晴海五丁目ターミナル)ゆき", ["B33"]),
+    ]
+    assert tabs[0]["weekday"][0] == "09:35"
+    assert tabs[0]["weekday"][-1] == "17:35"
+    assert len(tabs[0]["weekday"]) == 17
 
 
 def test_parse_b01_labels():
@@ -95,14 +115,16 @@ def _pages():
         "晴海五丁目ターミナル": _load("b33-harumi-flag.html"),
         "晴海BRTターミナル": _load("b22-harumi-brt-terminal.html"),
         "新橋": _load("b01-shimbashi.html"),
+        "東京駅八重洲": _load("b41-tokyo-yaesu.html"),
     }
 
 
 BRT_CFG = {
     "stops": [
-        {"name": "晴海五丁目ターミナル", "directions": ["新橋"]},
+        {"name": "晴海五丁目ターミナル", "directions": ["新橋", "東京駅"]},
         {"name": "晴海BRTターミナル", "directions": ["新橋", "虎ノ門ヒルズ"]},
         {"name": "新橋", "directions": ["晴海"]},
+        {"name": "東京駅八重洲", "directions": ["晴海"]},
     ],
     "routes": [],
 }
@@ -113,11 +135,26 @@ def test_extract_directions_filter():
     got = {(r["direction"], s["stop_name"]) for r in routes for s in r["stops"]}
     assert got == {
         ("新橋ゆき", "晴海五丁目ターミナル"),
+        ("東京駅八重洲ゆき", "晴海五丁目ターミナル"),
         ("新橋・虎ノ門ヒルズゆき", "晴海BRTターミナル"),
         # 新橋からの帰り: 「晴海」を含む2方面(幹線ルートは晴海に停まらないので出ない)
         ("HARUMI FLAG(晴海五丁目ターミナル)ゆき", "新橋"),
         ("晴海BRTターミナル・豊洲・ミチノテラス豊洲ゆき", "新橋"),
+        ("HARUMI FLAG(晴海五丁目ターミナル)ゆき", "東京駅八重洲"),
     }
+
+
+def test_extract_same_dest_different_route_kept_separate():
+    """新橋発と東京駅八重洲発はどちらも B33 行きだがルートが違う → 別 route・id 一意。"""
+    routes = fetch_brt.extract(_pages(), BRT_CFG)
+    to_flag = [r for r in routes if r["direction"].startswith("HARUMI FLAG")]
+    assert [(r["route_name"], r["stops"][0]["stop_name"]) for r in to_flag] == [
+        ("選手村ルート", "新橋"),
+        ("東京駅選手村ルート", "東京駅八重洲"),
+    ]
+    ids = [r["id"] for r in routes]
+    assert len(ids) == len(set(ids))
+    assert [r["id"] for r in to_flag] == ["brt-b33", "brt-b33-2"]
 
 
 def test_extract_schema():

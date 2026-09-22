@@ -43,8 +43,8 @@ brt:
     # --- 自宅側: 都心方向の便を見る ---
     - name: "晴海五丁目ターミナル"                # HARUMI FLAG(B33)
       group: depart
-      directions: ["新橋"]                        # (選手村ルート)新橋行
-    - name: "晴海BRTターミナル"                   # B22
+      directions: ["新橋", "東京駅"]              # (選手村ルート)新橋行 / (東京駅選手村ルート)東京駅八重洲行
+    - name: "晴海BRTターミナル"                 # B22
       group: depart
       directions: ["新橋", "虎ノ門ヒルズ"]        # (晴海・豊洲ルート)新橋・虎ノ門ヒルズ行
     # --- 都心側: 帰り(晴海方面)の便を見る ---
@@ -52,6 +52,9 @@ brt:
     - name: "新橋"                                # B01
       group: return
       directions: ["晴海"]                        # 選手村ルート / 晴海・豊洲ルート
+    - name: "東京駅八重洲"                        # B41(東京駅選手村ルート。2026 新設・昼間のみ)
+      group: return
+      directions: ["晴海"]                        # HARUMI FLAG(晴海五丁目ターミナル)行
   routes: []  # BRT はバス停ページ単位で取得するため系統フィルタは未使用
 
 # --- 晴海ライナー(Phase 2 で fetcher 実装。今は登録のみ)------------------

@@ -54,6 +54,10 @@ STOP_SLUGS = {
     "有明テニスの森": "b04-ariaketennis-no-mori",
     "国際展示場": "b05-kokusaitenjijo",
     "東京テレポート": "b06-tokyo-teleport",
+    # 東京駅選手村ルート(2026 新設。HARUMI FLAG ⇔ 東京駅八重洲)
+    "東京駅八重洲": "b41-tokyo-yaesu",
+    "東銀座": "b42-higashiginza",
+    "築地場外市場": "b43-tsukiji-jyogai-shijyou",
 }
 
 #: ダイヤ区分(fetch_toei.BUCKETS と同じ並び)
@@ -178,6 +182,7 @@ def extract(pages: dict[str, str], brt_cfg: dict) -> list[dict]:
     BRT は土休日ダイヤのため saturday には holiday と同じ時刻を入れる。
     """
     grouped: dict[tuple[str, str], dict] = {}
+    used_ids: set[str] = set()
     for cfg in brt_cfg.get("stops") or []:
         name = cfg["name"]
         html = pages.get(name)
@@ -188,14 +193,23 @@ def extract(pages: dict[str, str], brt_cfg: dict) -> list[dict]:
             if dirs and not any(d in tab["label"] for d in dirs):
                 continue  # この停留所では見ない方面
             key = (tab["route_name"], tab["direction"])
-            route = grouped.setdefault(key, {
-                "id": _slug(tab["dest_codes"]),
-                "operator": OPERATOR,
-                "operator_name": OPERATOR_NAME,
-                "route_name": tab["route_name"],
-                "direction": tab["direction"],
-                "stops": [],
-            })
+            route = grouped.get(key)
+            if route is None:
+                # 行き先コードだけだとルート違いで衝突する
+                # (選手村ルートと東京駅選手村ルートはどちらも B33 行き)→ 連番で一意化
+                base = rid = _slug(tab["dest_codes"])
+                n = 2
+                while rid in used_ids:
+                    rid, n = f"{base}-{n}", n + 1
+                used_ids.add(rid)
+                route = grouped[key] = {
+                    "id": rid,
+                    "operator": OPERATOR,
+                    "operator_name": OPERATOR_NAME,
+                    "route_name": tab["route_name"],
+                    "direction": tab["direction"],
+                    "stops": [],
+                }
             route["stops"].append({
                 "stop_name": name,
                 "weekday": tab["weekday"],
