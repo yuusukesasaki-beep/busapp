@@ -175,17 +175,39 @@ body {
 .hero .route-badge.op-brt { color: var(--op-brt); }
 .route-dir { font-size: .9rem; color: var(--muted); }
 
-.route-times { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; justify-content: flex-end; }
+.route-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+  justify-content: flex-end;
+}
 .time-chip {
   font-variant-numeric: tabular-nums;
   font-size: .9rem;
   color: var(--muted);
   padding: 2px 6px;
   border-radius: 6px;
+  white-space: nowrap;  /* 「本日終了」「19:46(あと1分)」を途中で折らない */
 }
 .time-chip.soon { color: var(--soon); font-weight: 700; background: color-mix(in srgb, var(--soon) 12%, transparent); }
 .time-chip.within-hour.soon { color: var(--within); background: color-mix(in srgb, var(--within) 14%, transparent); }
 .time-chip.end { color: var(--muted); font-style: italic; }
+
+/* スマホ幅では系統名バッジ+行き先を1行目、時刻を2行目に積む。
+   系統名が長い路線(例: 東京駅選手村ルート)で行き先や「本日終了」が
+   1文字ずつ折り返して読めなくなるのを防ぐ。 */
+@media (max-width: 460px) {
+  .route-row { flex-wrap: wrap; gap: 4px; }
+  .route-head { flex: 1 1 100%; min-width: 0; }
+  .route-dir { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .route-times {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    padding-left: 2px;
+  }
+}
 
 .settings {
   background: var(--card);
