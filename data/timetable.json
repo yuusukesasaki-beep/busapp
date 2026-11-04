@@ -1,13 +1,13 @@
 {
-  "generated_at": "2026-11-04T07:49:15+09:00",
+  "generated_at": "2026-11-05T08:07:33+09:00",
   "sources": {
     "toei": {
       "status": "ok",
-      "fetched_at": "2026-11-04T07:49:15+09:00"
+      "fetched_at": "2026-11-05T08:07:33+09:00"
     },
     "brt": {
       "status": "ok",
-      "fetched_at": "2026-11-04T07:49:15+09:00"
+      "fetched_at": "2026-11-05T08:07:33+09:00"
     }
   },
   "holidays": [
