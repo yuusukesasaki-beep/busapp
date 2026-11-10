@@ -17,3 +17,6 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
+
+# --- pipeline の実行レポート(Actions の Issue 起票用。コミットしない)---
+build-report.json
