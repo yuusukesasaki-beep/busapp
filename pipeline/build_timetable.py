@@ -7,7 +7,7 @@
 このチェックは絶対に無効化しない(設計書 §2.4 / CLAUDE.md)。
 
   uv run pipeline/build_timetable.py --local   # ローカル生成(要 .env)
-  uv run pipeline/build_timetable.py --report data/build-report.json   # Actions 用
+  uv run pipeline/build_timetable.py --report build-report.json   # Actions 用(data/ には置かない)
 
 ソース(都バス/東京BRT/晴海ライナー)はそれぞれ独立に取得し、1つが失敗しても
 前回の当該ソース分を維持して sources.<op>.status を stale にする(設計書 §3)。
