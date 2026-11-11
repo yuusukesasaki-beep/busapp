@@ -24,6 +24,7 @@ uv sync                   # 依存関係をインストール
 ```bash
 uv run pipeline/build_timetable.py --local   # ローカルで統合JSON生成(要 .env)
 uv run pytest pipeline/tests/                # パーサテスト
+node --test app/app.test.js                  # アプリの時刻計算・鮮度ロジックのテスト
 python -m http.server 8000                   # 直下で配信 → http://localhost:8000/app/ を開く
 ```
 

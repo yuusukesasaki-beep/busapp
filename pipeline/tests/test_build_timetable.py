@@ -74,10 +74,10 @@ def test_validate_skips_without_previous():
 
 
 # --- validate_trip_counts_by_operator ---------------------------------------
-def _route(op: str, weekday: list[str]) -> dict:
+def _route(op: str, weekday: list[str], stop_name: str = "x") -> dict:
     return {
         "operator": op,
-        "stops": [{"stop_name": "x", "weekday": weekday, "saturday": [], "holiday": []}],
+        "stops": [{"stop_name": stop_name, "weekday": weekday, "saturday": [], "holiday": []}],
     }
 
 
@@ -128,3 +128,161 @@ def test_validate_by_operator_catches_vanished_source():
     new = [_route("toei", ["07:00"] * 10)]
     with pytest.raises(bt.ValidationError, match=r"\[brt\]"):
         bt.validate_trip_counts_by_operator(prev, new)
+
+
+# --- collect_source(失敗時は前回データで継続)--------------------------------
+NOW = datetime(2026, 11, 10, 3, 0, 0, tzinfo=JST)
+
+
+def _prev_doc():
+    return {
+        "generated_at": "2026-11-09T03:00:00+09:00",
+        "sources": {
+            "brt": {"status": "ok", "fetched_at": "2026-11-09T03:00:00+09:00"},
+            "harumi": {"status": "ok", "fetched_at": "2026-11-09T03:00:00+09:00",
+                       "revision": "2026-07-18"},
+        },
+        "holidays": ["2026-11-23"],
+        "routes": [_route("brt", ["08:00"], "b") | {"id": "brt-b01"},
+                   _route("harumi", ["09:00"], "h") | {"id": "harumi-tokyo"}],
+    }
+
+
+def test_collect_source_ok_records_fetched_at_and_extra():
+    routes, sources = [], {}
+    ok = bt.collect_source(
+        "harumi", lambda: ([_route("harumi", ["07:16"])], {"revision": "2026-07-18"}),
+        _prev_doc(), NOW, routes, sources,
+    )
+    assert ok
+    assert len(routes) == 1 and routes[0]["stops"][0]["weekday"] == ["07:16"]
+    assert sources["harumi"] == {
+        "status": "ok", "fetched_at": "2026-11-10T03:00:00+09:00", "revision": "2026-07-18",
+    }
+
+
+def test_collect_source_failure_keeps_previous_as_stale():
+    def boom():
+        raise RuntimeError("PDF のリンクが見つかりません")
+
+    routes, sources = [], {}
+    ok = bt.collect_source("harumi", boom, _prev_doc(), NOW, routes, sources)
+    assert not ok
+    assert [r["id"] for r in routes] == ["harumi-tokyo"]  # 前回の harumi 分だけ
+    src = sources["harumi"]
+    assert src["status"] == "stale"
+    assert src["fetched_at"] == "2026-11-09T03:00:00+09:00"  # 前回の取得時刻を保つ
+    assert src["revision"] == "2026-07-18"                    # 付帯情報も保つ
+    assert "晴海ライナー" in src["note"]
+    assert "PDF" in src["error"]
+
+
+def test_collect_source_empty_result_is_failure():
+    routes, sources = [], {}
+    ok = bt.collect_source("brt", lambda: ([], {}), _prev_doc(), NOW, routes, sources)
+    assert not ok
+    assert sources["brt"]["status"] == "stale"
+    assert [r["id"] for r in routes] == ["brt-b01"]
+
+
+def test_collect_source_failure_without_previous_is_missing():
+    def boom():
+        raise RuntimeError("ODPT_TOKEN が未設定です")
+
+    routes, sources = [], {}
+    ok = bt.collect_source("toei", boom, _prev_doc(), NOW, routes, sources)
+    assert not ok
+    assert routes == []
+    assert sources["toei"]["status"] == "missing"
+    assert sources["toei"]["fetched_at"] == ""
+
+
+# --- run / main(fetcher をモックした統合テスト)------------------------------
+def _patch_io(monkeypatch, tmp_path, prev: dict | None):
+    data_path = tmp_path / "timetable.json"
+    if prev is not None:
+        data_path.write_text(__import__("json").dumps(prev), encoding="utf-8")
+    monkeypatch.setattr(bt, "DATA_PATH", data_path)
+    monkeypatch.setattr(bt, "load_previous", lambda path=None: prev)
+    monkeypatch.setattr(bt, "write_document", lambda doc, path=None: data_path.write_text(
+        __import__("json").dumps(doc, ensure_ascii=False), encoding="utf-8"))
+    monkeypatch.setattr(bt, "load_config", lambda path=None: {
+        "toei": {"stops": [{"name": "t", "group": "depart"}], "routes": []},
+        "brt": {"stops": [{"name": "b"}]},
+        "harumi": {"stops": [{"name": "h", "group": "return"}]},
+    })
+    monkeypatch.setattr(bt, "now_jst", lambda: NOW)
+    monkeypatch.setattr(bt.holidays, "fetch_syukujitsu_csv", lambda: b"")
+    monkeypatch.setattr(bt.holidays, "parse_holidays", lambda *a, **k: ["2026-11-23"])
+    return data_path
+
+
+def test_run_partial_failure_writes_doc_and_reports(monkeypatch, tmp_path):
+    data_path = _patch_io(monkeypatch, tmp_path, _prev_doc())
+    monkeypatch.setattr(bt, "fetch_toei_routes", lambda cfg, token: ([_route("toei", ["07:00"], "t")], {}))
+    monkeypatch.setattr(bt, "fetch_brt_routes", lambda cfg: ([_route("brt", ["08:05"], "b")], {}))
+
+    def harumi_fail(cfg):
+        raise RuntimeError("site changed")
+    monkeypatch.setattr(bt, "fetch_harumi_routes", harumi_fail)
+
+    doc, failed = bt.run()
+    assert failed == ["harumi"]
+    assert doc["sources"]["toei"]["status"] == "ok"
+    assert doc["sources"]["brt"]["status"] == "ok"
+    assert doc["sources"]["harumi"]["status"] == "stale"
+    assert {r["operator"] for r in doc["routes"]} == {"toei", "brt", "harumi"}
+    # 区分け付与(toei=depart, harumi=return)
+    groups = {r["operator"]: r["stops"][0].get("group") for r in doc["routes"]}
+    assert groups["toei"] == "depart" and groups["harumi"] == "return"
+    assert data_path.exists()
+
+
+def test_run_aborts_when_everything_fails_without_previous(monkeypatch, tmp_path):
+    _patch_io(monkeypatch, tmp_path, None)
+
+    def fail(*a, **k):
+        raise RuntimeError("down")
+    for name in ("fetch_toei_routes", "fetch_brt_routes", "fetch_harumi_routes"):
+        monkeypatch.setattr(bt, name, fail)
+    with pytest.raises(RuntimeError, match="全ソース"):
+        bt.run()
+
+
+def test_run_validation_failure_does_not_write(monkeypatch, tmp_path):
+    prev = _prev_doc()
+    prev["routes"] = [_route("toei", ["07:00"] * 100)]
+    data_path = _patch_io(monkeypatch, tmp_path, prev)
+    before = data_path.read_text(encoding="utf-8")
+    monkeypatch.setattr(bt, "fetch_toei_routes", lambda cfg, token: ([_route("toei", ["07:00"] * 10)], {}))
+    monkeypatch.setattr(bt, "fetch_brt_routes", lambda cfg: ([_route("brt", ["08:05"])], {}))
+    monkeypatch.setattr(bt, "fetch_harumi_routes", lambda cfg: ([_route("harumi", ["09:00"])], {}))
+    with pytest.raises(bt.ValidationError, match=r"\[toei\]"):
+        bt.run()
+    assert data_path.read_text(encoding="utf-8") == before
+
+
+def test_main_writes_report_on_validation_error(monkeypatch, tmp_path):
+    def run_fail(local=False):
+        raise bt.ValidationError("[toei] 便数が前回比 90% 変化")
+    monkeypatch.setattr(bt, "run", run_fail)
+    report = tmp_path / "r.json"
+    assert bt.main(["--report", str(report)]) == 1
+    data = __import__("json").loads(report.read_text(encoding="utf-8"))
+    assert data["ok"] is False
+    assert "妥当性チェック不合格" in data["error"]
+    assert data["failed_sources"] == []
+
+
+def test_main_writes_report_on_partial_failure(monkeypatch, tmp_path):
+    doc = {"generated_at": "2026-11-10T03:00:00+09:00", "holidays": ["x"],
+           "sources": {"toei": {"status": "ok"}, "brt": {"status": "stale"}},
+           "routes": [_route("toei", ["07:00"]), _route("brt", ["08:00", "08:10"])]}
+    monkeypatch.setattr(bt, "run", lambda local=False: (doc, ["brt"]))
+    report = tmp_path / "r.json"
+    assert bt.main(["--report", str(report)]) == 0  # 一部失敗でも生成は成功(終了コード0)
+    data = __import__("json").loads(report.read_text(encoding="utf-8"))
+    assert data["ok"] is True
+    assert data["failed_sources"] == ["brt"]
+    assert data["counts"] == {"toei": 1, "brt": 2}
+    assert data["sources"]["brt"]["status"] == "stale"

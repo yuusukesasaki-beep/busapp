@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>はるみバス</title>
-  <meta name="description" content="自宅周辺バス停の次のバスを表示">
-  <meta name="theme-color" content="#2563eb">
+  <meta name="description" content="自宅周辺バス停(都バス・東京BRT・晴海ライナー)の次のバスを表示">
+  <meta name="theme-color" content="#0f172a">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./icon.svg">
@@ -14,12 +14,29 @@
 <body>
   <div id="app">
     <header class="app-header">
-      <h1>はるみバス</h1>
-      <button id="refresh" class="icon-btn" title="更新" aria-label="更新">↻</button>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h1>はるみバス</h1>
+      </div>
+      <div class="header-tools">
+        <span id="freshness-pill" class="pill" aria-live="polite"></span>
+        <button id="refresh" class="icon-btn" title="更新" aria-label="更新">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 12a8 8 0 1 1-2.6-5.9"/>
+            <path d="M20 4v5h-5"/>
+          </svg>
+        </button>
+      </div>
     </header>
 
-    <div id="status-bar" class="status-bar" hidden></div>
-    <p id="schedule-type" class="schedule-type"></p>
+    <div id="status-bar" class="status-bar" role="status" hidden></div>
+
+    <div class="today">
+      <span id="today-date" class="today-date"></span>
+      <span id="schedule-type" class="schedule-type"></span>
+    </div>
+
+    <section id="overview" class="overview" aria-label="次に来るバス(3社横断)" hidden></section>
 
     <main id="stops" class="stops" aria-live="polite"></main>
 
@@ -30,12 +47,14 @@
 
     <footer class="app-footer">
       <p id="freshness" class="freshness"></p>
+      <ul id="sources" class="sources" aria-label="データの取得状態"></ul>
       <p class="official">公式サイトで最新の運行を確認:
         <a href="https://tobus.jp/" target="_blank" rel="noopener">都バス ↗</a> /
-        <a href="https://tokyo-brt.co.jp/" target="_blank" rel="noopener">東京BRT ↗</a>
+        <a href="https://tokyo-brt.co.jp/" target="_blank" rel="noopener">東京BRT ↗</a> /
+        <a href="https://www.hitachi-gr.com/harumi-liner" target="_blank" rel="noopener">晴海ライナー ↗</a>
       </p>
       <p class="credit">
-        バスデータ: <a href="https://www.odpt.org/" target="_blank" rel="noopener">公共交通オープンデータセンター</a>(都営バス / CC BY 4.0)、東京BRT公式サイト時刻表<br>
+        バスデータ: <a href="https://www.odpt.org/" target="_blank" rel="noopener">公共交通オープンデータセンター</a>(都営バス / CC BY 4.0)、東京BRT公式サイト時刻表、日立自動車交通「晴海ライナー」公式時刻表<br>
         祝日: 内閣府「国民の祝日」
       </p>
     </footer>

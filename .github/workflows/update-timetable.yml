@@ -4,6 +4,14 @@
 # 前提(GitHub側の手作業):
 #   - リポジトリ Secrets に ODPT_TOKEN を登録(.env とは別。Actions 用)
 #
+# 失敗時の運用(設計書 §2.3 / §7):
+#   - 1ソースの取得失敗 … build_timetable が前回データで継続(sources.<op>.status=stale)。
+#     生成物はコミットされ、アプリに鮮度警告が出る。あわせて Issue を自動起票/追記する。
+#   - 妥当性チェック不合格・パーサテスト失敗 … 生成物をコミットせず(前日の JSON が残る)、
+#     Issue を自動起票/追記し、ジョブを失敗させる(deploy-pages は走らない)。
+#   - 復旧したら Issue に「復旧」を追記して自動クローズする。
+#   Issue は label `pipeline-failure` で1件に集約する(毎日新規に増やさない)。
+#
 # 注意: Actions は UTC。03:00 JST = 18:00 UTC 前日(設計書 / CLAUDE.md)。
 name: update-timetable
 
@@ -14,10 +22,15 @@ on:
 
 permissions:
   contents: write          # data/timetable.json をコミットするため
+  issues: write            # 取得失敗時の Issue 自動起票のため
 
 concurrency:
   group: update-timetable
   cancel-in-progress: false
+
+env:
+  REPORT_PATH: ${{ github.workspace }}/build-report.json   # data/ には置かない(コミット対象外)
+  FAILURE_LABEL: pipeline-failure
 
 jobs:
   build:
@@ -31,16 +44,23 @@ jobs:
           enable-cache: true
 
       - name: パーサテスト(サイト/仕様変更の検知)
+        id: tests
+        continue-on-error: true
         run: uv run --frozen pytest -q
 
       - name: timetable.json 生成(妥当性チェック込み)
+        id: build
+        if: steps.tests.outcome == 'success'
+        continue-on-error: true
         env:
           ODPT_TOKEN: ${{ secrets.ODPT_TOKEN }}
-        run: uv run --frozen pipeline/build_timetable.py
+        run: uv run --frozen pipeline/build_timetable.py --report "$REPORT_PATH"
         # 便数±50%超などで異常終了した場合はここで失敗し、コミット/デプロイされない
-        # (前日の timetable.json が残る = 障害に強い設計)
+        # (前日の timetable.json が残る = 障害に強い設計)。
+        # 1ソースだけの失敗は前回データで継続し、終了コード 0 + レポートに failed_sources を残す。
 
       - name: 変更があればコミット & プッシュ
+        if: steps.build.outcome == 'success'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -51,3 +71,78 @@ jobs:
             git commit -m "data: update timetable.json ($(date -u +%Y-%m-%dT%H:%MZ))"
             git push
           fi
+
+      - name: 取得失敗を Issue に自動起票(復旧時は自動クローズ)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # --- 状態判定 ---------------------------------------------------------
+          # severity: fatal(生成物なし) / partial(前回データで継続) / ok
+          severity=ok
+          detail=""
+          if [ "$TESTS_OUTCOME" != "success" ]; then
+            severity=fatal
+            detail="パーサテストが失敗しました(サイト改修や仕様変更の可能性)。"
+          elif [ "$BUILD_OUTCOME" != "success" ]; then
+            severity=fatal
+            if [ -f "$REPORT_PATH" ]; then
+              detail="$(jq -r '.error // "生成に失敗しました"' "$REPORT_PATH")"
+            else
+              detail="生成に失敗しました(レポート未出力)。"
+            fi
+          elif [ -f "$REPORT_PATH" ] && [ "$(jq -r '.failed_sources | length' "$REPORT_PATH")" != "0" ]; then
+            severity=partial
+            detail="一部ソースの取得に失敗したため前回データで継続しています: $(jq -r '.failed_sources | join(", ")' "$REPORT_PATH")"
+          fi
+          echo "severity=$severity"
+
+          # --- レポート本文(秘密情報は含まない: build_timetable.write_report 参照)---
+          report_block=""
+          if [ -f "$REPORT_PATH" ]; then
+            report_block=$(printf '\n<details><summary>build-report.json</summary>\n\n```json\n%s\n```\n</details>\n' "$(cat "$REPORT_PATH")")
+          fi
+          today="$(TZ=Asia/Tokyo date +%Y-%m-%d)"
+          now="$(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M JST')"
+
+          # --- 既存の未解決 Issue(ラベルで1件に集約)---------------------------
+          gh label create "$FAILURE_LABEL" --color D93F0B \
+            --description "timetable 更新パイプラインの失敗(自動起票)" --force >/dev/null
+          existing="$(gh issue list --label "$FAILURE_LABEL" --state open --json number --jq '.[0].number // empty')"
+
+          if [ "$severity" = ok ]; then
+            if [ -n "$existing" ]; then
+              gh issue comment "$existing" --body "$(printf '✅ %s の実行で全ソースの取得に成功しました(復旧)。自動クローズします。\n\n実行: %s%s' "$now" "$RUN_URL" "$report_block")"
+              gh issue close "$existing" --reason completed
+            fi
+            exit 0
+          fi
+
+          if [ "$severity" = fatal ]; then
+            icon="🚨"; headline="timetable.json を更新できませんでした(前日のデータのまま)"
+          else
+            icon="⚠️"; headline="一部ソースの取得に失敗しました(当該ソースは前回データ)"
+          fi
+          body="$(printf '%s **%s**\n\n- 日時: %s\n- 実行: %s\n- 詳細: %s\n\n対応の目安: 公式サイト/ODPT の変更を確認し、新しい HTML/PDF を `pipeline/tests/fixtures/` に追加してからパーサを修正する(CLAUDE.md「テスト方針」)。%s' \
+            "$icon" "$headline" "$now" "$RUN_URL" "$detail" "$report_block")"
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+            echo "既存 Issue #$existing に追記しました"
+          else
+            gh issue create \
+              --title "timetable 更新失敗: $headline ($today)" \
+              --label "$FAILURE_LABEL" \
+              --body "$body"
+          fi
+
+      - name: 生成失敗時はジョブを失敗させる(deploy-pages を走らせない)
+        if: steps.tests.outcome != 'success' || steps.build.outcome != 'success'
+        run: |
+          echo "tests=${{ steps.tests.outcome }} build=${{ steps.build.outcome }}"
+          exit 1

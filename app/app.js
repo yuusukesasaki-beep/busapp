@@ -9,7 +9,22 @@ const DATA_URLS = ['./data/timetable.json', '../data/timetable.json'];
 
 const SCHEDULE_LABEL = { weekday: '平日ダイヤ', saturday: '土曜ダイヤ', holiday: '休日ダイヤ' };
 const STORE_KEY = 'harumi-bus:enabled-stops';
-const SHOW_PER_ROUTE = 3; // 各系統・方面で先読みする便数
+const SHOW_PER_ROUTE = 3;   // 各系統・方面で先読みする便数
+const OVERVIEW_COUNT = 4;   // 3社横断「次に来るバス」で区分ごとに出す便数
+
+// 事業者キー → 表示名(timetable.json に operator_name が無い旧データ用のフォールバック)
+const OPERATOR_LABEL = { toei: '都バス', brt: '東京BRT', harumi: '晴海ライナー' };
+const SOURCE_ORDER = ['toei', 'brt', 'harumi'];
+
+// 鮮度の段階。pipeline は毎日 03:00 JST に 1 回動くので、
+// 30 時間を超えたら「1回更新が飛んだ」、3 日を超えたら「明らかに古い」とみなす。
+const FRESH_HOURS = 30;
+const OLD_HOURS = 72;
+
+const GROUP_SECTIONS = [
+  { key: 'depart', label: 'おでかけ', dest: '都心方面' },
+  { key: 'return', label: '帰宅', dest: '晴海方面' },
+];
 
 // ---- 純粋関数(時刻ロジック)------------------------------------------------
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -51,7 +66,7 @@ function routesAtStop(data, stopName, scheduleType) {
         routeName: r.route_name,
         direction: r.direction,
         operator: r.operator,
-        operatorName: r.operator_name,
+        operatorName: r.operator_name || OPERATOR_LABEL[r.operator] || r.operator,
         times: s[scheduleType] || [],
       });
     }
@@ -80,12 +95,71 @@ function stopGroups(data) {
   return map;
 }
 
+// 3社横断: 複数バス停の全系統から「次に来る便」を時刻順に count 件返す。
+// 戻り値は {min,time,stopName,routeName,direction,operator,operatorName} の配列。
+function nextAcross(data, names, scheduleType, nowMin, count) {
+  const all = [];
+  for (const stopName of names) {
+    for (const r of routesAtStop(data, stopName, scheduleType)) {
+      for (const x of upcoming(r.times, nowMin, count)) {
+        all.push({
+          min: x.min, time: x.time, stopName,
+          routeName: r.routeName, direction: r.direction,
+          operator: r.operator, operatorName: r.operatorName,
+        });
+      }
+    }
+  }
+  all.sort((a, b) => a.min - b.min || a.stopName.localeCompare(b.stopName, 'ja'));
+  return count ? all.slice(0, count) : all;
+}
+
+// generated_at(ISO文字列) → {ageMin, label, level}。
+// level: fresh(通常) / stale(更新が1回以上飛んだ) / old(3日超) / unknown(解釈不能)
+function freshnessOf(generatedAt, now) {
+  const d = new Date(generatedAt);
+  if (!generatedAt || isNaN(d)) return { ageMin: null, label: '更新日時不明', level: 'unknown' };
+  const ageMin = Math.max(0, Math.round((now - d) / 60000));
+  let label;
+  if (ageMin < 1) label = 'たった今更新';
+  else if (ageMin < 60) label = `${ageMin}分前に更新`;
+  else if (ageMin < 24 * 60) label = `${Math.floor(ageMin / 60)}時間前に更新`;
+  else label = `${Math.floor(ageMin / (24 * 60))}日前に更新`;
+  const hours = ageMin / 60;
+  const level = hours > OLD_HOURS ? 'old' : hours > FRESH_HOURS ? 'stale' : 'fresh';
+  return { ageMin, label, level };
+}
+
+// sources(timetable.json) → 事業者ごとの取得状態の一覧(表示順は SOURCE_ORDER)。
+function sourceSummary(data) {
+  const sources = (data && data.sources) || {};
+  const keys = SOURCE_ORDER.filter((k) => k in sources)
+    .concat(Object.keys(sources).filter((k) => SOURCE_ORDER.indexOf(k) === -1));
+  return keys.map((key) => {
+    const s = sources[key] || {};
+    return {
+      key,
+      name: OPERATOR_LABEL[key] || key,
+      status: s.status || 'unknown',
+      fetchedAt: s.fetched_at || '',
+      note: s.note || '',
+    };
+  });
+}
+
 // ---- 以降はブラウザ専用(DOM)。node からの require では実行しない。----------
 if (typeof document !== 'undefined') {
   let cachedData = null;
   let tickTimer = null;
 
   const $ = (sel) => document.querySelector(sel);
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
 
   function loadEnabledStops() {
     try {
@@ -112,10 +186,44 @@ if (typeof document !== 'undefined') {
     return `あと${h}時間${m}分`;
   }
 
-  function fmtUpdated(iso) {
+  // カウントダウンを「数字を大きく・単位を小さく」組むための要素を返す。
+  function countdownNode(diffMin, className) {
+    const wrap = el('span', className);
+    if (diffMin <= 0) {
+      wrap.appendChild(el('span', 'cd-now', 'まもなく'));
+      return wrap;
+    }
+    wrap.appendChild(el('span', 'cd-pre', 'あと'));
+    if (diffMin < 60) {
+      wrap.appendChild(el('span', 'cd-num', String(diffMin)));
+      wrap.appendChild(el('span', 'cd-unit', '分'));
+    } else {
+      wrap.appendChild(el('span', 'cd-num', String(Math.floor(diffMin / 60))));
+      wrap.appendChild(el('span', 'cd-unit', '時間'));
+      wrap.appendChild(el('span', 'cd-num', String(diffMin % 60)));
+      wrap.appendChild(el('span', 'cd-unit', '分'));
+    }
+    return wrap;
+  }
+
+  function urgencyClass(diffMin) {
+    if (diffMin <= 3) return 'urgent';
+    if (diffMin <= 15) return 'soon';
+    return '';
+  }
+
+  function fmtDateTime(iso) {
     const d = new Date(iso);
     if (isNaN(d)) return iso;
-    return `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())} 更新`;
+    return `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+
+  function fmtUpdated(iso) {
+    return `${fmtDateTime(iso)} 更新`;
+  }
+
+  function badge(operator, routeName) {
+    return el('span', `route-badge op-${operator || 'other'}`, routeName);
   }
 
   function render() {
@@ -124,36 +232,31 @@ if (typeof document !== 'undefined') {
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
     const scheduleType = scheduleTypeFor(now, data.holidays);
-
-    $('#schedule-type').textContent = `本日: ${SCHEDULE_LABEL[scheduleType]}`;
-    renderStatus(data);
-    renderFreshness(data);
-
-    const container = $('#stops');
-    container.innerHTML = '';
     const stops = enabledStopsFor(data);
     const groups = stopGroups(data);
 
-    // 区分け情報があれば「おでかけ/帰宅」のセクションに分ける(無い旧データは平置き)
-    const sections = Object.keys(groups).length
-      ? [
-          { key: 'depart', label: 'おでかけ', dest: '都心方面' },
-          { key: 'return', label: '帰宅', dest: '晴海方面' },
-        ]
-      : [{ key: null }];
+    renderToday(now, scheduleType);
+    renderStatus(data);
+    renderFreshness(data, now);
 
+    // 区分け情報があれば「おでかけ/帰宅」のセクションに分ける(無い旧データは平置き)
+    const sections = Object.keys(groups).length ? GROUP_SECTIONS : [{ key: null }];
+    const namesFor = (section) => (section.key
+      ? stops.filter((n) => (groups[n] || 'depart') === section.key)
+      : stops);
+
+    renderOverview(data, sections, namesFor, scheduleType, nowMin);
+
+    const container = $('#stops');
+    container.innerHTML = '';
     for (const section of sections) {
-      const names = section.key
-        ? stops.filter((n) => (groups[n] || 'depart') === section.key)
-        : stops;
+      const names = namesFor(section);
       if (!names.length) continue;
 
       if (section.key) {
-        const head = document.createElement('h2');
-        head.className = `group-head group-${section.key}`;
-        head.innerHTML =
-          `<span class="group-label">${section.label}</span>` +
-          `<span class="group-dest">${section.dest}</span>`;
+        const head = el('h2', `group-head group-${section.key}`);
+        head.appendChild(el('span', 'group-label', section.label));
+        head.appendChild(el('span', 'group-dest', section.dest));
         container.appendChild(head);
       }
 
@@ -163,6 +266,61 @@ if (typeof document !== 'undefined') {
     }
 
     renderToggles(data);
+  }
+
+  function renderToday(now, scheduleType) {
+    const dow = '日月火水木金土'[now.getDay()];
+    $('#today-date').textContent = `${now.getMonth() + 1}/${now.getDate()}(${dow})`;
+    const label = $('#schedule-type');
+    label.textContent = SCHEDULE_LABEL[scheduleType];
+    label.className = `schedule-type sched-${scheduleType}`;
+  }
+
+  // 3社横断「次に来るバス」: 区分ごとに全バス停・全事業者を時刻順に並べる。
+  function renderOverview(data, sections, namesFor, scheduleType, nowMin) {
+    const wrap = $('#overview');
+    wrap.innerHTML = '';
+    let any = false;
+    for (const section of sections) {
+      const names = namesFor(section);
+      if (!names.length) continue;
+      const items = nextAcross(data, names, scheduleType, nowMin, OVERVIEW_COUNT);
+
+      const panel = el('section', `overview-panel${section.key ? ' group-' + section.key : ''}`);
+      const head = el('h2', 'overview-head');
+      head.appendChild(el('span', 'overview-title', '次に来るバス'));
+      if (section.key) head.appendChild(el('span', 'overview-group', `${section.label} → ${section.dest}`));
+      panel.appendChild(head);
+
+      if (!items.length) {
+        panel.appendChild(el('p', 'overview-empty', '本日の運行は終了しました'));
+        wrap.appendChild(panel);
+        any = true;
+        continue;
+      }
+
+      const list = el('ol', 'overview-list');
+      items.forEach((x, i) => {
+        const diff = x.min - nowMin;
+        const li = el('li', `overview-item op-${x.operator}${i === 0 ? ' first' : ''} ${urgencyClass(diff)}`);
+        li.appendChild(countdownNode(diff, 'overview-count'));
+        const meta = el('div', 'overview-meta');
+        const line1 = el('div', 'overview-line');
+        line1.appendChild(badge(x.operator, x.routeName));
+        line1.appendChild(el('span', 'overview-dir', x.direction));
+        meta.appendChild(line1);
+        const line2 = el('div', 'overview-sub');
+        line2.appendChild(el('span', 'overview-time', `${x.time}発`));
+        line2.appendChild(el('span', 'overview-stop', x.stopName));
+        meta.appendChild(line2);
+        li.appendChild(meta);
+        list.appendChild(li);
+      });
+      panel.appendChild(list);
+      wrap.appendChild(panel);
+      any = true;
+    }
+    wrap.hidden = !any;
   }
 
   function buildStopCard(data, stopName, scheduleType, nowMin, groupKey) {
@@ -180,54 +338,58 @@ if (typeof document !== 'undefined') {
       }
     }
 
-    const card = document.createElement('section');
-    card.className = 'stop-card' + (groupKey ? ` group-${groupKey}` : '');
+    const card = el('section', 'stop-card' + (groupKey ? ` group-${groupKey}` : ''));
 
-    const h = document.createElement('h3');
-    h.className = 'stop-name';
-    h.textContent = stopName;
-    card.appendChild(h);
+    const head = el('header', 'stop-head');
+    const h = el('h3', 'stop-name', stopName);
+    head.appendChild(h);
+    // 事業者の色点(このバス停に来る事業者を一目で)
+    const ops = [];
+    for (const r of routes) if (ops.indexOf(r.operator) === -1) ops.push(r.operator);
+    const dots = el('span', 'op-dots');
+    for (const op of ops) {
+      const dot = el('span', `op-dot op-${op}`);
+      dot.title = OPERATOR_LABEL[op] || op;
+      dots.appendChild(dot);
+    }
+    head.appendChild(dots);
+    card.appendChild(head);
 
     if (soonest) {
-      const hero = document.createElement('div');
-      hero.className = 'hero' + (soonest.operator ? ` op-${soonest.operator}` : '');
-      hero.innerHTML =
-        `<span class="hero-count">${fmtCountdown(soonest.min - nowMin)}</span>` +
-        `<span class="hero-meta"><span class="route-badge op-${soonest.operator}">${soonest.routeName}</span> ` +
-        `${soonest.direction} ・ ${soonest.time}発</span>`;
+      const diff = soonest.min - nowMin;
+      const hero = el('div', `hero op-${soonest.operator || 'other'} ${urgencyClass(diff)}`);
+      hero.appendChild(countdownNode(diff, 'hero-count'));
+      const meta = el('div', 'hero-meta');
+      meta.appendChild(badge(soonest.operator, soonest.routeName));
+      meta.appendChild(el('span', 'hero-dir', soonest.direction));
+      meta.appendChild(el('span', 'hero-time', `${soonest.time}発`));
+      hero.appendChild(meta);
       card.appendChild(hero);
     } else {
-      const none = document.createElement('div');
-      none.className = 'hero none';
-      none.innerHTML = '<span class="hero-count">本日の運行は終了</span>';
+      const none = el('div', 'hero none');
+      none.appendChild(el('span', 'hero-end', '本日の運行は終了'));
       card.appendChild(none);
     }
 
     for (const r of routes) {
       const next = upcoming(r.times, nowMin, SHOW_PER_ROUTE);
-      const row = document.createElement('div');
-      row.className = 'route-row';
-      const head = document.createElement('div');
-      head.className = 'route-head';
-      head.innerHTML =
-        `<span class="route-badge op-${r.operator}">${r.routeName}</span>` +
-        `<span class="route-dir">${r.direction}</span>`;
-      row.appendChild(head);
+      const row = el('div', `route-row op-${r.operator || 'other'}`);
+      const rh = el('div', 'route-head');
+      rh.appendChild(badge(r.operator, r.routeName));
+      rh.appendChild(el('span', 'route-dir', r.direction));
+      row.appendChild(rh);
 
-      const times = document.createElement('div');
-      times.className = 'route-times';
+      const times = el('div', 'route-times');
       if (next.length) {
         next.forEach((x, i) => {
-          const span = document.createElement('span');
-          span.className = 'time-chip' + (i === 0 ? ' soon' : '') + (x.min - nowMin <= 60 ? ' within-hour' : '');
-          span.textContent = i === 0 ? `${x.time}(${fmtCountdown(x.min - nowMin)})` : x.time;
-          times.appendChild(span);
+          const diff = x.min - nowMin;
+          const chip = el('span', 'time-chip' + (i === 0 ? ' lead' : '') + (diff <= 60 ? ' within-hour' : ''));
+          chip.appendChild(el('span', 'chip-time', x.time));
+          if (i === 0) chip.appendChild(el('span', 'chip-cd', fmtCountdown(diff)));
+          times.appendChild(chip);
         });
       } else {
-        const span = document.createElement('span');
-        span.className = 'time-chip end';
-        span.textContent = '本日終了';
-        times.appendChild(span);
+        times.appendChild(el('span', 'time-chip end', '本日終了'));
       }
       row.appendChild(times);
       card.appendChild(row);
@@ -239,24 +401,47 @@ if (typeof document !== 'undefined') {
   function renderStatus(data) {
     const bar = $('#status-bar');
     const problems = [];
-    const sources = data.sources || {};
-    for (const key of Object.keys(sources)) {
-      const s = sources[key];
-      if (s.status && s.status !== 'ok') {
-        const when = s.fetched_at ? fmtUpdated(s.fetched_at) : '';
-        problems.push(`⚠ ${s.note || key + ' のデータが最新ではありません'}${when ? '(' + when + ')' : ''}`);
+    for (const s of sourceSummary(data)) {
+      if (s.status !== 'ok') {
+        const when = s.fetchedAt ? `(${fmtDateTime(s.fetchedAt)}時点)` : '';
+        problems.push(`${s.note || s.name + 'のデータが最新ではありません'}${when}`);
       }
     }
+    bar.innerHTML = '';
     if (problems.length) {
       bar.hidden = false;
-      bar.textContent = problems.join(' / ');
+      for (const p of problems) bar.appendChild(el('p', 'status-line', `⚠ ${p}`));
     } else {
       bar.hidden = true;
     }
   }
 
-  function renderFreshness(data) {
-    $('#freshness').textContent = data.generated_at ? fmtUpdated(data.generated_at) : '';
+  // 鮮度表示: ヘッダーのピル(相対時刻)+フッターの絶対時刻+事業者ごとの取得状態。
+  function renderFreshness(data, now) {
+    const f = freshnessOf(data.generated_at, now);
+    const pill = $('#freshness-pill');
+    pill.textContent = f.label;
+    pill.className = `pill fresh-${f.level}`;
+    pill.title = data.generated_at ? fmtUpdated(data.generated_at) : '';
+
+    $('#freshness').textContent = data.generated_at
+      ? `時刻表データ: ${fmtUpdated(data.generated_at)}(${f.label})`
+      : '';
+
+    const list = $('#sources');
+    list.innerHTML = '';
+    for (const s of sourceSummary(data)) {
+      const li = el('li', `source src-${s.status}`);
+      li.appendChild(el('span', `op-dot op-${s.key}`));
+      li.appendChild(el('span', 'source-name', s.name));
+      let text;
+      if (s.status === 'ok') text = s.fetchedAt ? fmtDateTime(s.fetchedAt) : '取得済み';
+      else if (s.status === 'stale') text = `前回データ(${s.fetchedAt ? fmtDateTime(s.fetchedAt) : '日時不明'})`;
+      else if (s.status === 'missing') text = '未取得';
+      else text = s.status;
+      li.appendChild(el('span', 'source-state', text));
+      list.appendChild(li);
+    }
   }
 
   function renderToggles(data) {
@@ -264,21 +449,26 @@ if (typeof document !== 'undefined') {
     if (wrap.dataset.built === '1') return; // 一度だけ構築
     const all = stopNames(data);
     const enabled = enabledStopsFor(data);
+    const groups = stopGroups(data);
     wrap.innerHTML = '';
     all.forEach((name) => {
-      const label = document.createElement('label');
-      label.className = 'toggle';
+      const label = el('label', 'toggle');
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = enabled.indexOf(name) !== -1;
       cb.addEventListener('change', () => {
-        const checked = Array.from(wrap.querySelectorAll('input:checked')).map((el) => el.value);
+        const checked = Array.from(wrap.querySelectorAll('input:checked')).map((e) => e.value);
         saveEnabledStops(checked);
         render();
       });
       cb.value = name;
       label.appendChild(cb);
-      label.appendChild(document.createTextNode(' ' + name));
+      label.appendChild(el('span', 'toggle-name', name));
+      const g = groups[name];
+      if (g) {
+        const sec = GROUP_SECTIONS.find((s) => s.key === g);
+        if (sec) label.appendChild(el('span', `toggle-group group-${g}`, sec.label));
+      }
       wrap.appendChild(label);
     });
     wrap.dataset.built = '1';
@@ -303,7 +493,8 @@ if (typeof document !== 'undefined') {
     } catch (e) {
       const bar = $('#status-bar');
       bar.hidden = false;
-      bar.textContent = '⚠ データを取得できません。オフラインの可能性があります。';
+      bar.innerHTML = '';
+      bar.appendChild(el('p', 'status-line', '⚠ データを取得できません。オフラインの可能性があります。'));
     } finally {
       btn.classList.remove('spinning');
     }
@@ -335,5 +526,8 @@ if (typeof document !== 'undefined') {
 
 // node からのテスト用に純粋関数を公開。
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { toISODate, scheduleTypeFor, hhmmToMin, upcoming, routesAtStop, stopNames, stopGroups };
+  module.exports = {
+    toISODate, scheduleTypeFor, hhmmToMin, upcoming, routesAtStop, stopNames, stopGroups,
+    nextAcross, freshnessOf, sourceSummary,
+  };
 }
